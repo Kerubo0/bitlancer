@@ -20,10 +20,21 @@ const app = express()
 const PORT = process.env.PORT || 5000
 
 // Middleware
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-  credentials: true
-}))
+// Allow multiple dev origins configured in FRONTEND_URL (comma-separated)
+const rawFrontend = process.env.FRONTEND_URL || 'http://localhost:5173'
+const allowedOrigins = rawFrontend.split(',').map((s) => s.trim())
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (e.g., mobile clients, curl)
+      if (!origin) return callback(null, true)
+      if (allowedOrigins.includes(origin)) return callback(null, true)
+      return callback(new Error('CORS policy: origin not allowed'))
+    },
+    credentials: true,
+  })
+)
 app.use(morgan('dev'))
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
