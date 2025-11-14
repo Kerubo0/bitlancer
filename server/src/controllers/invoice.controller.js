@@ -1,5 +1,7 @@
 import { supabase } from '../utils/db.js'
-import bitnobService from '../../../bitnob/bitnob.service.js'
+import bitnobService from '../services/bitnob.service.js'
+import PDFDocument from 'pdfkit'
+import stream from 'stream'
 
 export const getAllInvoices = async (req, res, next) => {
   try {
@@ -169,12 +171,65 @@ export const generatePDF = async (req, res, next) => {
       return res.status(404).json({ error: 'Invoice not found' })
     }
 
-    // TODO: Implement PDF generation with jsPDF or similar
-    // For now, return the invoice data
-    res.json({
-      message: 'PDF generation endpoint - implement with jsPDF',
-      invoice,
+    // Server-side PDF generation using PDFKit
+    const doc = new PDFDocument({ size: 'A4', margin: 40 })
+
+    // Collect the PDF into a buffer
+    const passthrough = new stream.PassThrough()
+    const buffers = []
+    passthrough.on('data', (chunk) => buffers.push(chunk))
+    passthrough.on('end', () => {
+      const pdfData = Buffer.concat(buffers)
+      const filename = `${invoice.invoice_number || 'invoice'}-${invoice.id || ''}.pdf`
+      res.setHeader('Content-Type', 'application/pdf')
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
+      res.send(pdfData)
     })
+
+    // Pipe PDFKit output to passthrough
+    doc.pipe(passthrough)
+
+    // Header
+    doc.fontSize(18).text('Invoice', { align: 'left' })
+    doc.moveDown(0.5)
+    doc.fontSize(12).text(`Invoice #: ${invoice.invoice_number || ''}`)
+    doc.text(`Date: ${new Date(invoice.created_at).toLocaleDateString()}`)
+    doc.moveDown(0.5)
+
+    // Client
+    doc.text(`Bill To: ${invoice.client_name || ''}`)
+    if (invoice.client_email) doc.text(`${invoice.client_email}`)
+    doc.moveDown(0.5)
+
+    // Table headings
+    doc.fontSize(11)
+    doc.text('Description', 40, doc.y, { continued: true })
+    doc.text('Qty', 300, doc.y, { continued: true })
+    doc.text('Rate', 350, doc.y, { continued: true })
+    doc.text('Amount', 430, doc.y)
+    doc.moveDown(0.2)
+    doc.moveTo(40, doc.y).lineTo(555, doc.y).stroke()
+    doc.moveDown(0.5)
+
+    const items = invoice.invoice_items || []
+    items.forEach((item) => {
+      doc.text(item.description || '', 40, doc.y, { continued: true })
+      doc.text(String(item.quantity || ''), 300, doc.y, { continued: true })
+      doc.text(`$${(item.rate || 0).toFixed(2)}`, 350, doc.y, { continued: true })
+      doc.text(`$${(item.amount || 0).toFixed(2)}`, 430, doc.y)
+      doc.moveDown(0.2)
+    })
+
+    doc.moveDown(0.5)
+    doc.text(`Subtotal: $${(invoice.subtotal || 0).toFixed(2)}`, 350, doc.y)
+    doc.moveDown(0.2)
+    doc.text(`Total (USD): $${(invoice.amount_usd || 0).toFixed(2)}`, 350, doc.y)
+
+    doc.moveDown(1)
+    doc.fontSize(10).text('Thank you for your business!', 40, doc.y)
+
+    // Finalize PDF and end stream
+    doc.end()
   } catch (error) {
     next(error)
   }

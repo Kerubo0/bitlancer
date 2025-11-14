@@ -1,5 +1,5 @@
 import { supabase } from '../utils/db.js'
-import bitnobService from '../../../bitnob/bitnob.service.js'
+import bitnobService from '../services/bitnob.service.js'
 
 export const createWallet = async (req, res, next) => {
   try {
