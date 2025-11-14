@@ -3,7 +3,8 @@ import Layout from '../components/Layout'
 import Card from '../components/Card'
 import Button from '../components/Button'
 import { useAuth } from '../context/AuthContext'
-import api from '../lib/api'
+import walletService from '../services/wallet.service'
+import { formatBTC, formatUSD, copyToClipboard, shortenAddress } from '../lib/bitcoin'
 import toast from 'react-hot-toast'
 
 export default function Balances() {
@@ -18,10 +19,10 @@ export default function Balances() {
 
   const fetchBalance = async () => {
     try {
-      const { data } = await api.get('/wallet/balance')
+      const data = await walletService.getBalance()
       setBalance(data)
     } catch (error) {
-      toast.error('Failed to load balance')
+      toast.error(error.message || 'Failed to load balance')
     } finally {
       setLoading(false)
     }
@@ -61,7 +62,7 @@ export default function Balances() {
           <Card>
             <h3 className="text-sm font-medium text-gray-600 mb-4">Total Balance (BTC)</h3>
             <p className="text-4xl font-bold text-primary mb-2">
-              {balance?.btcBalance?.toFixed(8) || '0.00000000'}
+              {formatBTC(balance?.btcBalance)}
             </p>
             <p className="text-lg text-gray-500">Bitcoin</p>
           </Card>
@@ -69,7 +70,7 @@ export default function Balances() {
           <Card>
             <h3 className="text-sm font-medium text-gray-600 mb-4">USD Value</h3>
             <p className="text-4xl font-bold text-success mb-2">
-              ${balance?.usdBalance?.toFixed(2) || '0.00'}
+              ${formatUSD(balance?.usdBalance)}
             </p>
             <p className="text-lg text-gray-500">US Dollars</p>
           </Card>
@@ -77,7 +78,7 @@ export default function Balances() {
           <Card>
             <h3 className="text-sm font-medium text-gray-600 mb-4">Pending</h3>
             <p className="text-4xl font-bold text-warning mb-2">
-              {balance?.pendingBalance?.toFixed(8) || '0.00000000'}
+              {formatBTC(balance?.pendingBalance)}
             </p>
             <p className="text-lg text-gray-500">Unconfirmed</p>
           </Card>

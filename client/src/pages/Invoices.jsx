@@ -4,7 +4,8 @@ import Card from '../components/Card'
 import Button from '../components/Button'
 import Input from '../components/Input'
 import Modal from '../components/Modal'
-import api from '../lib/api'
+import invoiceService from '../services/invoice.service'
+import { formatBTC, formatUSD } from '../lib/bitcoin'
 import toast from 'react-hot-toast'
 
 export default function Invoices() {
@@ -25,10 +26,10 @@ export default function Invoices() {
 
   const fetchInvoices = async () => {
     try {
-      const { data } = await api.get('/invoices')
-      setInvoices(data.invoices)
+      const invoices = await invoiceService.getAllInvoices()
+      setInvoices(invoices)
     } catch (error) {
-      toast.error('Failed to load invoices')
+      toast.error(error.message || 'Failed to load invoices')
     } finally {
       setLoading(false)
     }
@@ -75,7 +76,7 @@ export default function Invoices() {
     e.preventDefault()
 
     try {
-      await api.post('/invoices', formData)
+      await invoiceService.createInvoice(formData)
       toast.success('Invoice created successfully!')
       setShowModal(false)
       fetchInvoices()
@@ -87,7 +88,7 @@ export default function Invoices() {
         amountUsd: 0,
       })
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to create invoice')
+      toast.error(error.message || 'Failed to create invoice')
     }
   }
 
@@ -138,9 +139,9 @@ export default function Invoices() {
                   </div>
                   <div className="text-right">
                     <p className="text-2xl font-bold text-primary mb-1">
-                      ${invoice.amount_usd.toFixed(2)}
+                      ${formatUSD(invoice.amount_usd)}
                     </p>
-                    <p className="text-sm text-gray-500">{invoice.amount_btc.toFixed(8)} BTC</p>
+                    <p className="text-sm text-gray-500">{formatBTC(invoice.amount_btc)} BTC</p>
                   </div>
                 </div>
               </Card>

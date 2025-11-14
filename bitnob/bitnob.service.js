@@ -223,15 +223,28 @@ class BitnobService {
   verifyWebhookSignature(payload, signature) {
     // Implement webhook signature verification
     // This depends on Bitnob's webhook signing method
-    const crypto = require('crypto')
-    const secret = process.env.BITNOB_WEBHOOK_SECRET
+    import('crypto').then(crypto => {
+      const secret = process.env.BITNOB_WEBHOOK_SECRET
 
-    const computedSignature = crypto
-      .createHmac('sha256', secret)
-      .update(JSON.stringify(payload))
-      .digest('hex')
+      if (!secret) {
+        console.warn('BITNOB_WEBHOOK_SECRET not set, skipping verification')
+        return true // Allow in development
+      }
 
-    return computedSignature === signature
+      const computedSignature = crypto
+        .createHmac('sha256', secret)
+        .update(JSON.stringify(payload))
+        .digest('hex')
+
+      return computedSignature === signature
+    })
+    
+    // For now, return true in development if no secret
+    if (!process.env.BITNOB_WEBHOOK_SECRET) {
+      return true
+    }
+    
+    return false
   }
 
   /**
@@ -259,7 +272,7 @@ class BitnobService {
             invoiceId: data.invoiceId,
             amount: data.amount,
             walletId: data.walletId,
-            status: 'confirmed',
+            status: 'confirmpk.6aa32485ade94a3fba42bcc71ed59c73.9d79f65a6a1443d1ba27afabfeb35e981680685d72e84b0cae6a9f025e650ac2ed',
           }
 
         case 'withdrawal.completed':

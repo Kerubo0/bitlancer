@@ -4,7 +4,9 @@ import Layout from '../components/Layout'
 import Card from '../components/Card'
 import Button from '../components/Button'
 import { useAuth } from '../context/AuthContext'
-import api from '../lib/api'
+import walletService from '../services/wallet.service'
+import transactionService from '../services/transaction.service'
+import { formatBTC, formatUSD, copyToClipboard } from '../lib/bitcoin'
 import toast from 'react-hot-toast'
 import { motion } from 'framer-motion'
 
@@ -21,25 +23,29 @@ export default function Dashboard() {
 
   const fetchDashboardData = async () => {
     try {
-      const [balanceRes, transactionsRes] = await Promise.all([
-        api.get('/wallet/balance'),
-        api.get('/transactions?limit=5'),
+      const [balance, transactions] = await Promise.all([
+        walletService.getBalance(),
+        transactionService.getAllTransactions({ limit: 5 }),
       ])
 
-      setBalance(balanceRes.data)
-      setRecentTransactions(transactionsRes.data.transactions || [])
+      setBalance(balance)
+      setRecentTransactions(transactions || [])
     } catch (error) {
-      toast.error('Failed to load dashboard data')
+      toast.error(error.message || 'Failed to load dashboard data')
     } finally {
       setLoading(false)
     }
   }
 
-  const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text)
-    setCopied(true)
-    toast.success('Copied to clipboard!')
-    setTimeout(() => setCopied(false), 2000)
+  const copyToClipboardHandler = async (text) => {
+    const success = await copyToClipboard(text)
+    if (success) {
+      setCopied(true)
+      toast.success('Copied to clipboard!')
+      setTimeout(() => setCopied(false), 2000)
+    } else {
+      toast.error('Failed to copy')
+    }
   }
 
   if (loading) {
@@ -70,10 +76,10 @@ export default function Dashboard() {
               </div>
             </div>
             <p className="text-3xl font-bold text-primary mb-1">
-              {balance?.btcBalance?.toFixed(8) || '0.00000000'} BTC
+              {formatBTC(balance?.btcBalance)} BTC
             </p>
             <p className="text-sm text-gray-500">
-              ≈ ${balance?.usdBalance?.toFixed(2) || '0.00'} USD
+              ≈ ${formatUSD(balance?.usdBalance)} USD
             </p>
           </Card>
 
@@ -85,7 +91,7 @@ export default function Dashboard() {
               </div>
             </div>
             <p className="text-3xl font-bold text-primary mb-1">
-              ${balance?.usdBalance?.toFixed(2) || '0.00'}
+              ${formatUSD(balance?.usdBalance)}
             </p>
             <p className="text-sm text-gray-500">Available to withdraw</p>
           </Card>
@@ -100,7 +106,7 @@ export default function Dashboard() {
               </div>
             </div>
             <p className="text-3xl font-bold text-primary mb-1">
-              {balance?.pendingBalance?.toFixed(8) || '0.00000000'} BTC
+              {formatBTC(balance?.pendingBalance)} BTC
             </p>
             <p className="text-sm text-gray-500">Unconfirmed transactions</p>
           </Card>
@@ -118,7 +124,7 @@ export default function Dashboard() {
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => copyToClipboard(walletInfo?.onchain_address)}
+              onClick={() => copyToClipboardHandler(walletInfo?.onchain_address)}
               className="w-full"
             >
               {copied ? 'Copied!' : 'Copy Address'}
@@ -135,7 +141,7 @@ export default function Dashboard() {
             <Button
               variant="secondary"
               size="sm"
-              onClick={() => copyToClipboard(walletInfo?.lightning_address)}
+              onClick={() => copyToClipboardHandler(walletInfo?.lightning_address)}
               className="w-full"
             >
               {copied ? 'Copied!' : 'Copy Address'}

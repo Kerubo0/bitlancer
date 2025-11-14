@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import api from '../lib/api'
+import walletService from '../services/wallet.service'
 
 const AuthContext = createContext({})
 
@@ -45,7 +45,7 @@ export const AuthProvider = ({ children }) => {
     const fetchWalletInfo = async () => {
       if (user) {
         try {
-          const { data } = await api.get('/wallet/info')
+          const data = await walletService.getWalletInfo()
           setWalletInfo(data)
         } catch (error) {
           console.error('Failed to fetch wallet info:', error)
@@ -69,7 +69,7 @@ export const AuthProvider = ({ children }) => {
 
     // Create wallet for new user
     if (data.user) {
-      await api.post('/wallet/create', { userId: data.user.id })
+      await walletService.createWallet(data.user.id)
     }
 
     return data
