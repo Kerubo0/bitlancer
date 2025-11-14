@@ -143,6 +143,30 @@ export default function Invoices() {
                     <p className="text-sm text-gray-500">{invoice.amount_btc.toFixed(8)} BTC</p>
                   </div>
                 </div>
+                <div className="mt-4 flex gap-2 justify-end">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={async () => {
+                      try {
+                        const response = await api.post(`/invoices/${invoice.id}/generate-pdf`, {}, { responseType: 'blob' })
+                        const blob = new Blob([response.data], { type: 'application/pdf' })
+                        const url = window.URL.createObjectURL(blob)
+                        const a = document.createElement('a')
+                        a.href = url
+                        a.download = `${invoice.invoice_number || 'invoice'}-${invoice.id || ''}.pdf`
+                        document.body.appendChild(a)
+                        a.click()
+                        a.remove()
+                        window.URL.revokeObjectURL(url)
+                      } catch (err) {
+                        console.error('Failed to download PDF', err)
+                      }
+                    }}
+                  >
+                    Download PDF
+                  </Button>
+                </div>
               </Card>
             ))}
           </div>

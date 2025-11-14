@@ -48,7 +48,14 @@ export const AuthProvider = ({ children }) => {
           const { data } = await api.get('/wallet/info')
           setWalletInfo(data)
         } catch (error) {
-          console.error('Failed to fetch wallet info:', error)
+          // Improved error logging to help diagnose connection issues
+          if (error.response) {
+            console.error('Failed to fetch wallet info - response error:', error.response.status, error.response.data)
+          } else if (error.request) {
+            console.error('Failed to fetch wallet info - no response from server:', error.message)
+          } else {
+            console.error('Failed to fetch wallet info:', error.message)
+          }
         }
       }
     }
