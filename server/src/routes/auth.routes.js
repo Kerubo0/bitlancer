@@ -14,7 +14,7 @@ router.get('/me', authenticate, async (req, res) => {
   }
 })
 
-// Initialize wallet after signup
+// Initialize wallet after signup or login (ensures wallet exists)
 router.post('/init-wallet', authenticate, async (req, res) => {
   try {
     // Check if profile exists
@@ -41,21 +41,24 @@ router.post('/init-wallet', authenticate, async (req, res) => {
         console.error('❌ Failed to create profile:', createError)
         throw createError
       }
-      
+
       profile = newProfile
       console.log('✅ Profile created')
     }
 
+    // If wallet already exists, return success
     if (profile?.wallet_id) {
-      return res.json({ 
-        success: true, 
+      console.log('✅ Wallet already exists for user:', req.user.id)
+      return res.json({
+        success: true,
         message: 'Wallet already exists',
-        wallet_id: profile.wallet_id 
+        wallet_id: profile.wallet_id,
+        wallet: profile
       })
     }
 
     // Create wallet via Bitnob
-    console.log('🆕 Creating wallet for new user:', req.user.email)
+    console.log('🆕 Creating wallet for user:', req.user.email)
     const walletData = await bitnobService.createWallet(req.user.id, req.user.email)
 
     // Update profile with wallet info
@@ -75,25 +78,25 @@ router.post('/init-wallet', authenticate, async (req, res) => {
     if (error) throw error
 
     console.log('✅ Wallet initialized successfully')
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       message: 'Wallet created successfully',
-      wallet: updatedProfile 
+      wallet: updatedProfile
     })
   } catch (error) {
     console.error('❌ Error initializing wallet:', error)
-    
+
     // Provide user-friendly error messages
     if (error.message && error.message.includes('already exists')) {
-      return res.status(409).json({ 
+      return res.status(409).json({
         error: 'Wallet already exists for this email in the payment system',
         details: error.message
       })
     }
-    
-    res.status(500).json({ 
+
+    res.status(500).json({
       error: 'Failed to initialize wallet',
-      details: error.message 
+      details: error.message
     })
   }
 })

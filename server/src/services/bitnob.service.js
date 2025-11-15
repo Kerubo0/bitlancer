@@ -11,6 +11,13 @@ const __dirname = dirname(__filename)
 dotenv.config({ path: join(__dirname, '../../.env') })
 
 const BITNOB_API_URL = process.env.BITNOB_API_URL || 'https://sandboxapi.bitnob.co'
+const USE_SANDBOX = BITNOB_API_URL.includes('sandbox')
+
+// Fix the base URL - remove duplicate /api/v1 if present
+const BASE_URL = BITNOB_API_URL.replace('/api/v1', '')
+
+// Use sandbox for testing if API key is not activated
+const FINAL_BASE_URL = 'https://sandboxapi.bitnob.co' // Force sandbox for now
 const BITNOB_API_KEY = process.env.BITNOB_API_KEY
 const USE_MOCK = process.env.USE_MOCK_BITNOB === 'true' || !BITNOB_API_KEY || BITNOB_API_KEY === 'your_bitnob_api_key'
 
@@ -27,12 +34,15 @@ if (USE_MOCK) {
 }
 
 const bitnobClient = axios.create({
-  baseURL: BITNOB_API_URL,
+  baseURL: FINAL_BASE_URL,
   headers: {
     Authorization: `Bearer ${BITNOB_API_KEY}`,
     'Content-Type': 'application/json',
   },
 })
+
+// Debug: Log the full URL being constructed
+console.log('🔧 Bitnob Client Base URL:', FINAL_BASE_URL)
 
 class BitnobService {
   async createWallet(userId, email) {

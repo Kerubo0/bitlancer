@@ -48,12 +48,9 @@ export const AuthProvider = ({ children }) => {
           const data = await walletService.getWalletInfo()
           setWalletInfo(data)
         } catch (error) {
-          // Don't show error if wallet just doesn't exist yet (404)
-          if (error.message && !error.message.includes('not found')) {
-            console.error('Failed to fetch wallet info:', error.message)
-          } else {
-            console.log('Wallet not created yet for user')
-          }
+          // If wallet doesn't exist, it will be auto-created on login
+          console.log('Wallet info not available yet, will be created on login')
+          setWalletInfo(null)
         }
       } else {
         setWalletInfo(null)
@@ -97,8 +94,8 @@ export const AuthProvider = ({ children }) => {
   // Helper function to initialize wallet
   const initializeWallet = async (token) => {
     try {
-      console.log('🔄 Initializing wallet...')
-      
+      console.log('🔄 Ensuring wallet exists...')
+
       const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/auth/init-wallet`, {
         method: 'POST',
         headers: {
@@ -106,11 +103,11 @@ export const AuthProvider = ({ children }) => {
           'Content-Type': 'application/json',
         },
       })
-      
+
       const result = await response.json()
-      
+
       if (response.ok) {
-        console.log('✅ Wallet initialized:', result.message)
+        console.log('✅ Wallet ready:', result.message)
         // Refresh wallet info
         try {
           const walletData = await walletService.getWalletInfo()
@@ -120,11 +117,11 @@ export const AuthProvider = ({ children }) => {
         }
       } else {
         console.error('⚠️  Wallet initialization failed:', result.error)
-        // Don't throw - allow signup to succeed even if wallet creation fails
+        // Don't throw - allow login to succeed even if wallet creation fails
       }
     } catch (error) {
       console.error('⚠️  Wallet initialization error:', error.message)
-      // Don't throw - allow signup to succeed
+      // Don't throw - allow login to succeed
     }
   }
 
@@ -135,21 +132,15 @@ export const AuthProvider = ({ children }) => {
     })
     if (error) throw error
 
-    // Check if user has a wallet, initialize if not
+    // Auto-initialize wallet for user on sign-in (ensures wallet exists)
     if (data.user && data.session) {
-      // Store token
+      console.log('✅ User signed in successfully, ensuring wallet exists...')
+
+      // Store token immediately
       localStorage.setItem('supabase.auth.token', data.session.access_token)
-      
-      try {
-        const walletData = await walletService.getWalletInfo()
-        setWalletInfo(walletData)
-      } catch (walletError) {
-        // If wallet doesn't exist, initialize it
-        if (walletError.message && (walletError.message.includes('not found') || walletError.message.includes('No wallet'))) {
-          console.log('No wallet found, initializing...')
-          initializeWallet(data.session.access_token)
-        }
-      }
+
+      // Initialize wallet (don't wait, do it in background)
+      initializeWallet(data.session.access_token)
     }
 
     return data
