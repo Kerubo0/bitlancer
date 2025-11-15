@@ -100,7 +100,8 @@ export const createPaymentLink = async (req, res, next) => {
     // Create USDT virtual card/account for receiving client payment
     const virtualCard = await bitnobService.createUsdtVirtualCard(
       profile.email,
-      `Payment Link: ${title}`
+      `Payment Link: ${title}`,
+      amountUsd
     )
 
     // Generate slug

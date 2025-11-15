@@ -353,32 +353,30 @@ class BitnobService {
     return computedSignature === signature
   }
 
-  async createUsdtVirtualCard(customerEmail, description = 'USDT Payment Receiver') {
-    console.log('💳 Creating USDT virtual card...')
+  async createUsdtVirtualCard(customerEmail, description = 'USDT Payment Receiver', amount = 5) {
+    console.log('💳 Generating USDT address on Tron network...')
     console.log('   Email:', customerEmail)
     console.log('   Description:', description)
 
     try {
-      // Create a virtual card for receiving USDT payments
-      // Using Bitnob's virtual card API endpoint
-      const response = await bitnobClient.post('/api/v1/virtualcards/create', {
+      // Generate USDT address on Tron (TRC20) network
+      const response = await bitnobClient.post('/api/v1/addresses/tron/generate', {
         customerEmail: customerEmail,
-        currency: 'USDT',
-        type: 'deposit', // Card type for receiving deposits
         label: description,
       })
 
-      console.log('   ✅ USDT virtual card created!')
+      console.log('   ✅ USDT address generated!')
       console.log('   Response:', JSON.stringify(response.data, null, 2))
 
       const data = response.data.data || response.data
 
       return {
-        virtualCardId: data.id || data.cardId || data.virtualCardId,
-        usdtAddress: data.address || data.depositAddress || data.usdtAddress,
-        currency: data.currency || 'USDT',
-        network: data.network || 'TRC20', // Default to TRC20 (TRON)
+        virtualCardId: data.id || data.addressId || `tron_${Date.now()}`,
+        usdtAddress: data.address || data.tronAddress || data.depositAddress,
+        currency: 'USDT',
+        network: 'TRC20',
         qrCode: data.qrCode || null,
+        addressDetails: data,
       }
     } catch (error) {
       console.error('❌ Bitnob createUsdtVirtualCard error:')
@@ -388,14 +386,14 @@ class BitnobService {
 
       // Provide helpful error messages
       if (error.response?.status === 401) {
-        throw new Error('Virtual cards not enabled for your account. Contact Bitnob support.')
+        throw new Error('Unauthorized. Check your Bitnob API key.')
       } else if (error.response?.status === 400) {
         const message = error.response?.data?.message || 'Invalid request'
         const messageStr = Array.isArray(message) ? message.join(', ') : message
-        throw new Error(`USDT virtual card creation failed: ${messageStr}`)
+        throw new Error(`USDT address generation failed: ${messageStr}`)
       }
 
-      throw new Error(`Failed to create USDT virtual card: ${error.response?.data?.message || error.message}`)
+      throw new Error(`Failed to generate USDT address: ${error.response?.data?.message || error.message}`)
     }
   }
 
