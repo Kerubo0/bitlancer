@@ -48,38 +48,84 @@ export const AuthProvider = ({ children }) => {
           const data = await walletService.getWalletInfo()
           setWalletInfo(data)
         } catch (error) {
-          // Improved error logging to help diagnose connection issues
-          if (error.response) {
-            console.error('Failed to fetch wallet info - response error:', error.response.status, error.response.data)
-          } else if (error.request) {
-            console.error('Failed to fetch wallet info - no response from server:', error.message)
-          } else {
+          // Don't show error if wallet just doesn't exist yet (404)
+          if (error.message && !error.message.includes('not found')) {
             console.error('Failed to fetch wallet info:', error.message)
+          } else {
+            console.log('Wallet not created yet for user')
           }
         }
+      } else {
+        setWalletInfo(null)
       }
     }
     fetchWalletInfo()
   }, [user])
 
   const signUp = async (email, password, fullName) => {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          full_name: fullName,
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName,
+          },
         },
-      },
-    })
-    if (error) throw error
+      })
+      
+      if (error) throw error
 
-    // Create wallet for new user
-    if (data.user) {
-      await walletService.createWallet(data.user.id)
+      // Auto-initialize wallet for new user
+      if (data.user && data.session) {
+        console.log('✅ User signed up successfully, initializing wallet...')
+        
+        // Store token immediately
+        localStorage.setItem('supabase.auth.token', data.session.access_token)
+        
+        // Initialize wallet (don't wait, do it in background)
+        initializeWallet(data.session.access_token)
+      }
+
+      return data
+    } catch (error) {
+      console.error('Signup error:', error)
+      throw error
     }
+  }
 
-    return data
+  // Helper function to initialize wallet
+  const initializeWallet = async (token) => {
+    try {
+      console.log('🔄 Initializing wallet...')
+      
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000'}/api/auth/init-wallet`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      })
+      
+      const result = await response.json()
+      
+      if (response.ok) {
+        console.log('✅ Wallet initialized:', result.message)
+        // Refresh wallet info
+        try {
+          const walletData = await walletService.getWalletInfo()
+          setWalletInfo(walletData)
+        } catch (refreshError) {
+          console.warn('⚠️  Could not refresh wallet info:', refreshError.message)
+        }
+      } else {
+        console.error('⚠️  Wallet initialization failed:', result.error)
+        // Don't throw - allow signup to succeed even if wallet creation fails
+      }
+    } catch (error) {
+      console.error('⚠️  Wallet initialization error:', error.message)
+      // Don't throw - allow signup to succeed
+    }
   }
 
   const signIn = async (email, password) => {
@@ -88,6 +134,24 @@ export const AuthProvider = ({ children }) => {
       password,
     })
     if (error) throw error
+
+    // Check if user has a wallet, initialize if not
+    if (data.user && data.session) {
+      // Store token
+      localStorage.setItem('supabase.auth.token', data.session.access_token)
+      
+      try {
+        const walletData = await walletService.getWalletInfo()
+        setWalletInfo(walletData)
+      } catch (walletError) {
+        // If wallet doesn't exist, initialize it
+        if (walletError.message && (walletError.message.includes('not found') || walletError.message.includes('No wallet'))) {
+          console.log('No wallet found, initializing...')
+          initializeWallet(data.session.access_token)
+        }
+      }
+    }
+
     return data
   }
 

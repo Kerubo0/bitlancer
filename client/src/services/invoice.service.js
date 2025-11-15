@@ -95,6 +95,32 @@ class InvoiceService {
   }
 
   /**
+   * Download PDF for an invoice
+   * @param {string} id - Invoice ID
+   * @param {string} invoiceNumber - Invoice number for filename
+   * @returns {Promise<void>}
+   */
+  async downloadPDF(id, invoiceNumber = 'invoice') {
+    try {
+      const response = await api.post(`/invoices/${id}/generate-pdf`, {}, { 
+        responseType: 'blob' 
+      })
+      
+      const blob = new Blob([response.data], { type: 'application/pdf' })
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${invoiceNumber}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      throw this.handleError(error)
+    }
+  }
+
+  /**
    * Handle API errors
    * @private
    */

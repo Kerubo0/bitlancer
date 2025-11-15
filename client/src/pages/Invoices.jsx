@@ -150,18 +150,14 @@ export default function Invoices() {
                     variant="secondary"
                     onClick={async () => {
                       try {
-                        const response = await api.post(`/invoices/${invoice.id}/generate-pdf`, {}, { responseType: 'blob' })
-                        const blob = new Blob([response.data], { type: 'application/pdf' })
-                        const url = window.URL.createObjectURL(blob)
-                        const a = document.createElement('a')
-                        a.href = url
-                        a.download = `${invoice.invoice_number || 'invoice'}-${invoice.id || ''}.pdf`
-                        document.body.appendChild(a)
-                        a.click()
-                        a.remove()
-                        window.URL.revokeObjectURL(url)
+                        await invoiceService.downloadPDF(
+                          invoice.id, 
+                          invoice.invoice_number || `invoice-${invoice.id}`
+                        )
+                        toast.success('PDF downloaded successfully')
                       } catch (err) {
                         console.error('Failed to download PDF', err)
+                        toast.error('Failed to download PDF')
                       }
                     }}
                   >

@@ -53,26 +53,66 @@ export const createInvoice = async (req, res, next) => {
     const { clientName, clientEmail, invoiceItems, subtotal, amountUsd, dueDate } = req.body
 
     // Get user's wallet
-    const { data: profile } = await supabase
+    let { data: profile } = await supabase
       .from('profiles')
-      .select('wallet_id')
+      .select('wallet_id, onchain_address, email')
       .eq('id', req.user.id)
-      .single()
+      .maybeSingle()
 
-    if (!profile?.wallet_id) {
-      return res.status(400).json({ error: 'No wallet found. Please create a wallet first.' })
+    // Auto-create wallet if user doesn't have one
+    if (!profile || !profile.wallet_id) {
+      console.log('⚠️  User has no wallet. Auto-creating...')
+      
+      try {
+        // Create wallet via Bitnob
+        const walletData = await bitnobService.createWallet(req.user.id, req.user.email)
+        
+        // Create or update profile with wallet info
+        const { data: newProfile, error: profileError } = await supabase
+          .from('profiles')
+          .upsert({
+            id: req.user.id,
+            full_name: req.user.user_metadata?.full_name || req.user.email.split('@')[0],
+            email: req.user.email,
+            wallet_id: walletData.walletId,
+            onchain_address: walletData.onchainAddress,
+            lightning_address: walletData.lightningAddress,
+            btc_balance: 0,
+            usd_balance: 0,
+          })
+          .select('wallet_id, onchain_address, email')
+          .single()
+        
+        if (profileError) throw profileError
+        
+        profile = newProfile
+        console.log('✅ Wallet auto-created successfully')
+      } catch (walletError) {
+        console.error('❌ Failed to auto-create wallet:', walletError)
+        return res.status(500).json({ 
+          error: 'Failed to create wallet. Please try again or contact support.',
+          details: walletError.message 
+        })
+      }
     }
 
     // Get BTC exchange rate
     const fxRate = await bitnobService.getBtcUsdRate()
     const amountBtc = await bitnobService.convertUsdToBtc(amountUsd)
 
-    // Generate Lightning invoice
-    const lightningInvoice = await bitnobService.generateLightningInvoice(
-      profile.wallet_id,
-      Math.floor(amountBtc * 100000000), // Convert to satoshis
-      `Invoice for ${clientName}`
-    )
+    // Generate Lightning invoice (try, but continue if it fails)
+    let lightningInvoice = null
+    try {
+      lightningInvoice = await bitnobService.generateLightningInvoice(
+        Math.floor(amountBtc * 100000000), // Convert to satoshis
+        `Invoice for ${clientName}`,
+        req.user.email
+      )
+      console.log('✅ Lightning invoice generated')
+    } catch (lightningError) {
+      console.warn('⚠️  Lightning invoice generation failed:', lightningError.message)
+      console.warn('   Invoice will be created with onchain payment only')
+    }
 
     // Generate invoice number
     const { data: invoiceNumberData } = await supabase.rpc('generate_invoice_number')
@@ -91,9 +131,10 @@ export const createInvoice = async (req, res, next) => {
         fx_rate: fxRate,
         amount_usd: amountUsd,
         amount_btc: amountBtc,
-        bitnob_invoice_reference: lightningInvoice.invoiceId,
-        lightning_invoice: lightningInvoice.paymentRequest,
-        payment_request: lightningInvoice.paymentRequest,
+        bitnob_invoice_reference: lightningInvoice?.invoiceId || null,
+        lightning_invoice: lightningInvoice?.paymentRequest || null,
+        payment_request: lightningInvoice?.paymentRequest || null,
+        onchain_address: profile.onchain_address, // Use user's onchain address
         status: 'pending',
         due_date: dueDate || null,
       })

@@ -1,10 +1,30 @@
 import axios from 'axios'
 import dotenv from 'dotenv'
+import { fileURLToPath } from 'url'
+import { dirname, join } from 'path'
 
-dotenv.config()
+// Get the directory of this file
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
 
-const BITNOB_API_URL = process.env.BITNOB_API_URL || 'https://api.bitnob.co/api/v1'
+// Load .env from server directory (go up 2 levels: services -> src -> server)
+dotenv.config({ path: join(__dirname, '../../.env') })
+
+const BITNOB_API_URL = process.env.BITNOB_API_URL || 'https://sandboxapi.bitnob.co'
 const BITNOB_API_KEY = process.env.BITNOB_API_KEY
+const USE_MOCK = process.env.USE_MOCK_BITNOB === 'true' || !BITNOB_API_KEY || BITNOB_API_KEY === 'your_bitnob_api_key'
+
+console.log('🔧 Bitnob Service Configuration:')
+console.log('   API URL:', BITNOB_API_URL)
+console.log('   API Key:', BITNOB_API_KEY ? `${BITNOB_API_KEY.substring(0, 20)}...` : 'NOT SET')
+console.log('   USE_MOCK_BITNOB env var:', process.env.USE_MOCK_BITNOB)
+console.log('   USE_MOCK computed:', USE_MOCK)
+
+if (USE_MOCK) {
+  console.log('⚠️  WARNING: Using MOCK Bitnob service. Set USE_MOCK_BITNOB=false when you have real credentials.')
+} else {
+  console.log('✅ Using REAL Bitnob API')
+}
 
 const bitnobClient = axios.create({
   baseURL: BITNOB_API_URL,
@@ -16,32 +36,157 @@ const bitnobClient = axios.create({
 
 class BitnobService {
   async createWallet(userId, email) {
+    // REAL BITNOB API CALL - 2-step process
+    console.log('📞 Creating Bitnob customer and generating Bitcoin address...')
+    console.log('   Email:', email)
+    console.log('   User ID:', userId)
+    console.log('   API URL:', BITNOB_API_URL)
+    
     try {
-      const response = await bitnobClient.post('/wallets', {
+      // Step 1: Create customer in Bitnob
+      console.log('   Step 1: Creating customer...')
+      let customerId
+      
+      try {
+        const customerResponse = await bitnobClient.post('/api/v1/customers', {
+          email: email,
+          firstName: email.split('@')[0],
+          lastName: 'User',
+        })
+        customerId = customerResponse.data.data.id
+        console.log('   ✅ Customer created:', customerId)
+      } catch (customerError) {
+        console.error('   ❌ Customer creation failed:')
+        console.error('   Status:', customerError.response?.status)
+        console.error('   Error:', JSON.stringify(customerError.response?.data, null, 2))
+        
+        // If customer already exists, provide helpful message
+        if (customerError.response?.status === 409 || customerError.response?.status === 400) {
+          const errorMsg = customerError.response?.data?.message || ''
+          if (errorMsg.includes('already exists') || errorMsg.includes('duplicate')) {
+            throw new Error(`A wallet for ${email} already exists in Bitnob. If you need to reset it, please contact support.`)
+          }
+        }
+        
+        // Re-throw the original error
+        throw customerError
+      }
+
+      // Step 2: Generate Bitcoin address for customer
+      console.log('   Step 2: Generating Bitcoin address...')
+      const addressResponse = await bitnobClient.post('/api/v1/addresses/generate', {
         customerEmail: email,
-        customerId: userId,
+        currency: 'btc',
+        network: 'bitcoin',
       })
 
+      console.log('   ✅ Bitcoin address generated!')
+      console.log('   Address data:', JSON.stringify(addressResponse.data, null, 2))
+
+      // Extract the address from response
+      const addressData = addressResponse.data.data
+      
+      // Step 3: Try to create Lightning address (optional, won't fail wallet creation)
+      let lightningAddressData = null
+      try {
+        console.log('   Step 3: Creating Lightning address...')
+        lightningAddressData = await this.createLightningAddress(
+          email, 
+          email.split('@')[0] + Math.random().toString(36).substring(2, 6) // Add random suffix to avoid conflicts
+        )
+        console.log('   ✅ Lightning address created:', lightningAddressData.lightningAddress)
+      } catch (lnError) {
+        console.warn('   ⚠️  Lightning address creation skipped:', lnError.message)
+      }
+      
       return {
-        walletId: response.data.data.id,
-        onchainAddress: response.data.data.address,
-        lightningAddress: response.data.data.lightning?.address || null,
+        walletId: customerId, // Customer ID serves as wallet ID
+        onchainAddress: addressData.address || addressData.btcAddress,
+        lightningAddress: lightningAddressData?.lightningAddress || addressData.lightningAddress || null,
         balance: 0,
       }
     } catch (error) {
-      console.error('Bitnob createWallet error:', error.response?.data || error.message)
-      throw new Error('Failed to create Bitcoin wallet')
+      console.error('❌ Bitnob createWallet error:')
+      console.error('   Status:', error.response?.status)
+      console.error('   Data:', JSON.stringify(error.response?.data, null, 2))
+      console.error('   Message:', error.message)
+      throw new Error(`Failed to create Bitcoin wallet: ${error.response?.data?.message || error.message}`)
+    }
+  }
+
+  async createLightningAddress(customerEmail, username) {
+    console.log('⚡ Creating Lightning address...')
+    console.log('   Email:', customerEmail)
+    console.log('   Username:', username)
+    
+    try {
+      // Generate Lightning address for customer
+      // Endpoint requires: customerEmail, username, and tld
+      const response = await bitnobClient.post('/api/v1/lnurl', {
+        customerEmail: customerEmail,
+        username: username || customerEmail.split('@')[0], // Use email prefix if no username
+        tld: 'bitnob.io', // Top-level domain for Lightning address
+      })
+
+      console.log('   ✅ Lightning address created!')
+      console.log('   Response:', JSON.stringify(response.data, null, 2))
+      
+      const data = response.data.data || response.data
+      
+      return {
+        lightningAddress: data.lightningAddress || data.lightning_address || data.address || `${username}@bitnob.io`,
+        lnurl: data.lnurl || data.lnurlPay || data.lnurl_pay,
+        username: data.username || username,
+      }
+    } catch (error) {
+      console.error('❌ Bitnob createLightningAddress error:')
+      console.error('   Status:', error.response?.status)
+      console.error('   Data:', JSON.stringify(error.response?.data, null, 2))
+      console.error('   Message:', error.message)
+      
+      // Provide helpful error messages
+      if (error.response?.status === 401) {
+        console.warn('⚠️  Lightning address not enabled for your account. Contact Bitnob support.')
+      } else if (error.response?.status === 400) {
+        const message = error.response?.data?.message || 'Invalid request'
+        const messageStr = Array.isArray(message) ? message.join(', ') : message
+        console.warn(`⚠️  Lightning address creation failed: ${messageStr}`)
+      } else if (error.response?.status === 409) {
+        console.warn('⚠️  Lightning address username already taken. Try a different username.')
+      }
+      
+      // Don't throw error - just log warning and continue without Lightning address
+      console.warn('   Continuing without Lightning address...')
+      return {
+        lightningAddress: null,
+        lnurl: null,
+        username: null,
+      }
     }
   }
 
   async getBalance(walletId) {
+    // REAL BITNOB API CALL
+    // Note: In Bitnob, balance is tied to the company wallet, not individual customer addresses
+    // For now, return 0 balance. Implement proper balance tracking via transactions later.
     try {
-      const response = await bitnobClient.get(`/wallets/${walletId}/balance`)
-
+      const response = await bitnobClient.get('/api/v1/wallets')
+      
+      // Get the Bitcoin wallet from your company wallets
+      const btcWallet = response.data.data.find(w => w.currency === 'btc')
+      
+      if (btcWallet) {
+        return {
+          btcBalance: btcWallet.balance?.btc || 0,
+          usdBalance: btcWallet.balance?.usd || 0,
+          pendingBalance: 0,
+        }
+      }
+      
       return {
-        btcBalance: response.data.data.availableBalance || 0,
-        usdBalance: response.data.data.usdBalance || 0,
-        pendingBalance: response.data.data.pendingBalance || 0,
+        btcBalance: 0,
+        usdBalance: 0,
+        pendingBalance: 0,
       }
     } catch (error) {
       console.error('Bitnob getBalance error:', error.response?.data || error.message)
@@ -49,24 +194,54 @@ class BitnobService {
     }
   }
 
-  async generateLightningInvoice(walletId, amountSats, description) {
+  async generateLightningInvoice(amountSats, description, customerEmail) {
+    console.log('⚡ Generating Lightning invoice...')
+    console.log('   Amount:', amountSats, 'sats')
+    console.log('   Description:', description)
+    console.log('   Customer Email:', customerEmail)
+    
     try {
-      const response = await bitnobClient.post(`/wallets/${walletId}/lightning/invoice`, {
-        amount: amountSats,
+      // Correct endpoint with correct field names
+      const response = await bitnobClient.post('/api/v1/wallets/ln/createinvoice', {
+        satoshis: amountSats,           // Changed from 'amount' to 'satoshis'
         description: description,
-        expiry: 3600,
+        customerEmail: customerEmail,    // Required field
       })
 
+      console.log('   ✅ Lightning invoice created!')
+      console.log('   Response:', JSON.stringify(response.data, null, 2))
+      
+      // Handle different possible response formats
+      const data = response.data.data || response.data
+      
       return {
-        invoiceId: response.data.data.id,
-        paymentRequest: response.data.data.paymentRequest,
-        paymentHash: response.data.data.paymentHash,
-        amount: response.data.data.amount,
-        expiresAt: response.data.data.expiresAt,
+        invoiceId: data.id || data.reference || data.invoice_id || `ln_${Date.now()}`,
+        paymentRequest: data.request || data.paymentRequest || data.payment_request || data.pr,
+        paymentHash: data.paymentHash || data.payment_hash || data.hash || data.payment_id,
+        amount: amountSats,
+        expiresAt: data.expiresAt || data.expires_at || data.expiry,
       }
     } catch (error) {
-      console.error('Bitnob generateLightningInvoice error:', error.response?.data || error.message)
-      throw new Error('Failed to generate Lightning invoice')
+      console.error('❌ Bitnob generateLightningInvoice error:')
+      console.error('   Status:', error.response?.status)
+      console.error('   Data:', JSON.stringify(error.response?.data, null, 2))
+      console.error('   Message:', error.message)
+      
+      // Provide helpful error messages
+      if (error.response?.status === 401) {
+        throw new Error('Lightning not enabled for your account. Contact Bitnob support to enable Lightning Network features.')
+      }
+      
+      if (error.response?.status === 404) {
+        throw new Error('Lightning endpoint not found. The API may have changed.')
+      }
+      
+      if (error.response?.status === 400) {
+        const messages = error.response?.data?.message || []
+        throw new Error(`Invalid request: ${Array.isArray(messages) ? messages.join(', ') : messages}`)
+      }
+      
+      throw new Error(`Failed to generate Lightning invoice: ${error.response?.data?.message || error.message}`)
     }
   }
 
@@ -90,7 +265,7 @@ class BitnobService {
 
   async sendBitcoin(walletId, address, amount) {
     try {
-      const response = await bitnobClient.post(`/wallets/${walletId}/send`, {
+      const response = await bitnobClient.post(`/wallets/send_bitcoin`, {
         address: address,
         amount: amount,
         priority: 'medium',
