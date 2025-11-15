@@ -110,6 +110,48 @@ class PaymentLinkService {
   }
 
   /**
+   * Initiate USDT payment for a payment link
+   * @param {string} id - Payment link ID
+   * @returns {Promise<Object>} Payment initiation data with USDT details
+   */
+  async initiatePayment(id) {
+    try {
+      const response = await api.post(`/payment-links/${id}/initiate`)
+      return response.data
+    } catch (error) {
+      throw this.handleError(error)
+    }
+  }
+
+  /**
+   * Get payment status
+   * @param {string} id - Payment link ID
+   * @returns {Promise<Object>} Payment status
+   */
+  async getPaymentStatus(id) {
+    try {
+      const response = await api.get(`/payment-links/${id}/status`)
+      return response.data
+    } catch (error) {
+      throw this.handleError(error)
+    }
+  }
+
+  /**
+   * Confirm USDT payment (called by webhook)
+   * @param {Object} webhookData - Webhook data from Bitnob
+   * @returns {Promise<Object>} Confirmation result
+   */
+  async confirmUsdtPayment(webhookData) {
+    try {
+      const response = await api.post('/payment-links/confirm-usdt', webhookData)
+      return response.data
+    } catch (error) {
+      throw this.handleError(error)
+    }
+  }
+
+  /**
    * Handle API errors
    * @private
    */

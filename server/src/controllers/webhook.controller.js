@@ -33,6 +33,10 @@ export const handleBitnobWebhook = async (req, res, next) => {
           await handlePaymentReceived(processedData)
           break
 
+        case 'usdt_received':
+          await handleUsdtReceived(processedData)
+          break
+
         case 'lightning_paid':
           await handleLightningPaid(processedData)
           break
@@ -154,6 +158,111 @@ async function handleLightningPaid(data) {
         })
         .eq('id', invoice.user_id)
     }
+  }
+}
+
+async function handleUsdtReceived(data) {
+  console.log('💰 USDT deposit webhook received:', data)
+
+  try {
+    // Find payment link by virtual card ID
+    const { data: paymentLink, error } = await supabase
+      .from('payment_links')
+      .select('*')
+      .eq('bitnob_usdt_virtual_account_id', data.virtualCardId)
+      .single()
+
+    if (error || !paymentLink) {
+      console.error('Payment link not found for virtual card:', data.virtualCardId)
+      return
+    }
+
+    console.log('Found payment link:', paymentLink.id)
+
+    // Update payment link with USDT receipt
+    await supabase
+      .from('payment_links')
+      .update({
+        payment_status: 'USDT_RECEIVED',
+        usdt_tx_hash: data.txHash,
+      })
+      .eq('id', paymentLink.id)
+
+    console.log('Updated payment status to USDT_RECEIVED')
+
+    // Convert USDT to BTC and send to freelancer
+    if (paymentLink.btc_address) {
+      try {
+        console.log('Converting USDT to BTC and sending to:', paymentLink.btc_address)
+
+        const btcResult = await bitnobService.convertUsdtToBtcAndSend(
+          data.amount,
+          paymentLink.btc_address,
+          `Payment Link: ${paymentLink.title}`
+        )
+
+        console.log('BTC sent successfully:', btcResult)
+
+        // Update payment link with BTC transaction details
+        await supabase
+          .from('payment_links')
+          .update({
+            payment_status: 'BTC_SENT',
+            btc_tx_hash: btcResult.txHash,
+            btc_amount: btcResult.btcAmount,
+          })
+          .eq('id', paymentLink.id)
+
+        // Mark as PAID once BTC is sent
+        await supabase
+          .from('payment_links')
+          .update({
+            payment_status: 'PAID',
+            confirmed_at: new Date().toISOString(),
+            payment_count: paymentLink.payment_count + 1,
+            total_received_usd: paymentLink.total_received_usd + data.amount,
+            total_received_btc: paymentLink.total_received_btc + btcResult.btcAmount,
+          })
+          .eq('id', paymentLink.id)
+
+        console.log('Payment fully processed and marked as PAID')
+
+        // Create transaction record
+        await supabase.from('transactions').insert({
+          user_id: paymentLink.user_id,
+          type: 'payment_link',
+          reference_id: paymentLink.id,
+          reference_type: 'payment_link',
+          amount_usd: data.amount,
+          amount_btc: btcResult.btcAmount,
+          fx_rate: await bitnobService.getBtcUsdRate(),
+          status: 'completed',
+          payment_method: 'usdt',
+          bitnob_transaction_id: btcResult.transactionId,
+          metadata: {
+            usdt_tx_hash: data.txHash,
+            btc_tx_hash: btcResult.txHash,
+            sender: data.sender,
+            meta: data.meta,
+          },
+        })
+
+        console.log('Transaction record created')
+      } catch (btcError) {
+        console.error('Error converting USDT to BTC:', btcError)
+
+        // Update status to show error
+        await supabase
+          .from('payment_links')
+          .update({ payment_status: 'failed' })
+          .eq('id', paymentLink.id)
+      }
+    } else {
+      console.error('BTC address not found for freelancer')
+    }
+  } catch (error) {
+    console.error('Error handling USDT deposit:', error)
+    throw error
   }
 }
 

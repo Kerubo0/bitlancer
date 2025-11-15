@@ -353,6 +353,118 @@ class BitnobService {
     return computedSignature === signature
   }
 
+  async createUsdtVirtualCard(customerEmail, description = 'USDT Payment Receiver') {
+    console.log('💳 Creating USDT virtual card...')
+    console.log('   Email:', customerEmail)
+    console.log('   Description:', description)
+
+    try {
+      // Create a virtual card for receiving USDT payments
+      // Using Bitnob's virtual card API endpoint
+      const response = await bitnobClient.post('/api/v1/virtualcards/create', {
+        customerEmail: customerEmail,
+        currency: 'USDT',
+        type: 'deposit', // Card type for receiving deposits
+        label: description,
+      })
+
+      console.log('   ✅ USDT virtual card created!')
+      console.log('   Response:', JSON.stringify(response.data, null, 2))
+
+      const data = response.data.data || response.data
+
+      return {
+        virtualCardId: data.id || data.cardId || data.virtualCardId,
+        usdtAddress: data.address || data.depositAddress || data.usdtAddress,
+        currency: data.currency || 'USDT',
+        network: data.network || 'TRC20', // Default to TRC20 (TRON)
+        qrCode: data.qrCode || null,
+      }
+    } catch (error) {
+      console.error('❌ Bitnob createUsdtVirtualCard error:')
+      console.error('   Status:', error.response?.status)
+      console.error('   Data:', JSON.stringify(error.response?.data, null, 2))
+      console.error('   Message:', error.message)
+
+      // Provide helpful error messages
+      if (error.response?.status === 401) {
+        throw new Error('Virtual cards not enabled for your account. Contact Bitnob support.')
+      } else if (error.response?.status === 400) {
+        const message = error.response?.data?.message || 'Invalid request'
+        const messageStr = Array.isArray(message) ? message.join(', ') : message
+        throw new Error(`USDT virtual card creation failed: ${messageStr}`)
+      }
+
+      throw new Error(`Failed to create USDT virtual card: ${error.response?.data?.message || error.message}`)
+    }
+  }
+
+  async getUsdtToBtcRate() {
+    try {
+      // Get USDT to BTC conversion rate
+      // Since USDT is pegged to USD, we can use USD/BTC rate
+      const btcUsdRate = await this.getBtcUsdRate()
+      return 1 / btcUsdRate // USDT to BTC rate
+    } catch (error) {
+      console.error('Bitnob getUsdtToBtcRate error:', error.message)
+      throw new Error('Failed to fetch USDT/BTC exchange rate')
+    }
+  }
+
+  async convertUsdtToBtc(usdtAmount) {
+    const rate = await this.getUsdtToBtcRate()
+    if (rate === 0) throw new Error('Unable to fetch exchange rate')
+    return usdtAmount * rate
+  }
+
+  async convertBtcToUsdt(btcAmount) {
+    const rate = await this.getBtcUsdRate()
+    if (rate === 0) throw new Error('Unable to fetch exchange rate')
+    return btcAmount * rate
+  }
+
+  async convertUsdtToBtcAndSend(usdtAmount, btcAddress, description) {
+    console.log('🔄 Converting USDT to BTC and sending...')
+    console.log('   USDT Amount:', usdtAmount)
+    console.log('   BTC Address:', btcAddress)
+    console.log('   Description:', description)
+
+    try {
+      // Step 1: Convert USDT to BTC using Bitnob's FX API
+      const btcAmount = await this.convertUsdtToBtc(usdtAmount)
+      console.log('   Calculated BTC amount:', btcAmount)
+
+      // Step 2: Send BTC to the specified address
+      const response = await bitnobClient.post('/api/v1/wallets/send_bitcoin', {
+        address: btcAddress,
+        amount: btcAmount,
+        priority: 'medium',
+        description: description,
+      })
+
+      console.log('   ✅ BTC sent successfully!')
+      console.log('   Response:', JSON.stringify(response.data, null, 2))
+
+      const data = response.data.data || response.data
+
+      return {
+        transactionId: data.id || data.transactionId,
+        txHash: data.hash || data.txHash || data.txId,
+        btcAmount: btcAmount,
+        usdtAmount: usdtAmount,
+        fee: data.fee || 0,
+        status: data.status || 'pending',
+      }
+    } catch (error) {
+      console.error('❌ Bitnob convertUsdtToBtcAndSend error:')
+      console.error('   Status:', error.response?.status)
+      console.error('   Data:', JSON.stringify(error.response?.data, null, 2))
+      console.error('   Message:', error.message)
+
+      throw new Error(`Failed to convert USDT to BTC and send: ${error.response?.data?.message || error.message}`)
+    }
+  }
+
   async handleWebhook(event) {
     try {
       const { type, data } = event
@@ -365,6 +477,19 @@ class BitnobService {
             amount: data.amount,
             txHash: data.hash,
             status: 'confirmed',
+          }
+
+        case 'usdt.deposit':
+        case 'virtualcard.deposit':
+          return {
+            type: 'usdt_received',
+            virtualCardId: data.virtualCardId || data.cardId,
+            amount: data.amount,
+            currency: data.currency || 'USDT',
+            txHash: data.txHash || data.hash,
+            sender: data.sender || data.from,
+            status: 'confirmed',
+            meta: data.meta || {},
           }
 
         case 'lightning.invoice.paid':

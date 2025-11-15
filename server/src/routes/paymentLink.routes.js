@@ -14,4 +14,9 @@ router.put('/:id', authenticate, validate(updatePaymentLinkSchema), paymentLinkC
 router.delete('/:id', authenticate, paymentLinkController.deletePaymentLink)
 router.post('/:id/pay', paymentLinkController.processPayment) // Public route
 
+// USDT payment flow routes
+router.post('/:id/initiate', paymentLinkController.initiatePayment) // Public route - initiate USDT payment
+router.post('/confirm-usdt', paymentLinkController.confirmUsdtPayment) // Webhook route - confirm USDT receipt
+router.get('/:id/status', paymentLinkController.getPaymentStatus) // Public route - check payment status
+
 export default router
